@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Raft Cluster Management Dashboard</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <style>
+        body {
+            padding: 20px;
+        }
+
+        .card {
+            margin-bottom: 20px;
+        }
+
+        .node-log {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 10px;
+        }
+
+        .log-entry {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+        }
+
+        .status-online {
+            color: green;
+        }
+
+        .status-offline {
+            color: red;
+        }
+
+        .leader-node {
+            border: 2px solid #101010;
+        }
+
+        .section {
+            padding: 3%;
+        }
+
+        input {
+            margin: 0 0 2% 0;
+            padding: 0 1%;
+            border-radius: 10px;
+            border: solid 1px gray;
+        }
+
+        button {
+            background-color: #101010;
+            color: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        .warning {
+            font-weight: bold;
+            font-style: italic;
+            color: red;
+            display: none;
+        }
+
+        #valueNotFound, #valueLenNotFound {
+            color: red;
+            font-weight: bold;
+        }
+
+        .container-1 {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+        }
+
+        .container-2 {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="my-4">Raft Cluster Management Dashboard</h1>
+        <div class="card section">
+            <h3>Web Client</h3>
+            <div class="container-1">
+                <div>
+                    <label for="actions">Choose an action:</label>
+                    <select id="actions" name="actions" onchange="showContainer()">
+                        <option value="get">GET</option>
+                        <option value="set">SET</option>
+                        <option value="append">APPEND</option>
+                        <option value="getall">GETALL</option>
+                        <option value="delete">DELETE</option>
+                        <option value="length">LENGTH</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="address-list">Target Address:</label>
+                    <select id="address-list" name="address-list" onchange="changeAddressDestination()">
+                    </select>
+                </div>
+
+            </div>
+            <div id="set-container" class="container-2">
+                <label for="key">Key:</label>
+                <input type="text" id="key" name="key">
+                <label for="value">Value:</label>
+                <input type="text" id="value" name="value">
+                <p class="warning" id="setWarning">Key or Value Cannot be Empty</p>
+                <button onclick="sendRequest()">Send Request</button>
+            </div>
+            <div id="append-container" class="container-2">
+                <label for="append-key">Key:</label>
+                <input type="text" id="append-key" name="append-key">
+                <label for="append-value">Append Value:</label>
+                <input type="text" id="append-value" name="append-value">
+                <p class="warning" id="appendWarning">Key or Value Cannot be Empty</p>
+                <button onclick="appendRequest()">Send Request</button>
+            </div>
+            <div id="get-container" class="container-2">
+                <label for="getKey">Get Key:</label>
+                <input type="text" id="getKey" name="getKey">
+                <p class="warning" id="getWarning">Get Key Cannot be Empty</p>
+                <button onclick="getValue()">Get Value</button>
+                <label for="getValue">Value for Key: <span id="valueForKey"></span> <span
+                        id="valueNotFound"></span></label>
+                <input type="text" id="getValue" name="getValue" disabled>
+            </div>
+            <div id="strln-container" class="container-2">
+                <label for="lenKey">Key:</label>
+                <input type="text" id="lenKey" name="lenKey">
+                <p class="warning" id="lenWarning">Key Cannot be Empty</p>
+                <button onclick="getLength()">Get Value Length</button>
+                <label for="lenValue">Value Length for Key: <span id="valueLenForKey"></span> <span
+                        id="valueLenNotFound"></span></label>
+                <input type="text" id="lenValue" name="lenValue" disabled>
+            </div>
+            <div id="delete-container" class="container-2">
+                <label for="deleteKey">Delete Key:</label>
+                <input type="text" id="deleteKey" name="deleteKey">
+                <p class="warning" id="deleteWarning1">Get Key Cannot be Empty</p>
+                <button onclick="deleteKey()">Get Value</button>
+                <p class="warning" id="deleteWarning2">Get Key Cannot be Empty</p>
+            </div>
+            <div id="getall-container" class="container-2">
+                <button onclick="getAll()">Get All Value</button>
+                <div id="getall-item-container">
+                </div>
+            </div>
+        </div>
+        <div class="card section">
+            <h3>Servers</h3>
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            Nodes
+                        </div>
+                        <div class="card-body" id="nodes">
+                            Loading nodes information...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var ip = null;
+        var port = null;
+
+        function showContainer() {
+            var action = document.getElementById("actions").value;
+            var setContainer = document.getElementById("set-container");
+            var getContainer = document.getElementById("get-container");
+            var deleteContainer = document.getElementById("delete-container");
+            var getAllContainer = document.getElementById("getall-container");
+            var appendContainer = document.getElementById("append-container");
+            var lengthContainer = document.getElementById("strln-container");
+
+            setContainer.style.display = "none";
+            getContainer.style.display = "none";
+            deleteContainer.style.display = "none";
+            getAllContainer.style.display = "none";
+            appendContainer.style.display = "none";
+            lengthContainer.style.display = "none";
+
+            if (action === "set") {
+                setContainer.style.display = "flex";
+            } else if (action === "get") {
+                getContainer.style.display = "flex";
+            } else if (action === "delete") {
+                deleteContainer.style.display = "flex";
+            } else if (action === "getall") {
+                getAllContainer.style.display = "flex";
+            } else if (action === "append") {
+                appendContainer.style.display = "flex";
+            } else if (action === "length") {
+                lengthContainer.style.display = "flex";
+            }
+        }
+
+        function sendRequest() {
+            const key = document.getElementById('key').value;
+            const value = document.getElementById('value').value;
+            const data = {
+                key: key,
+                value: value,
+                ip: ip,
+                port: port
+            };
+
+            if (key != "" && value != "") {
+                document.getElementById('setWarning').style.display = "none";
+                fetch('/api/set', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                    .then(response => {
+                        console.log('Request sent successfully');
+                        document.getElementById('key').value = "";
+                        document.getElementById('value').value = "";
+                    })
+                    .catch(error => {
+                        console.error('Error sending request:', error);
+                    });
+            } else {
+                document.getElementById('setWarning').style.display = "block";
+            }
+        }
+
+        function appendRequest() {
+            const key = document.getElementById('append-key').value;
+            const value = document.getElementById('append-value').value;
+            const data = {
+                key: key,
+                value: value,
+                ip: ip,
+                port: port
+            };
+
+            if (key != "" && value != "") {
+                document.getElementById('appendWarning').style.display = "none";
+                fetch('/api/append', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                    .then(response => {
+                        console.log('Request sent successfully');
+                        document.getElementById('append-key').value = "";
+                        document.getElementById('append-value').value = "";
+                    })
+                    .catch(error => {
+                        console.error('Error sending request:', error);
+                    });
+            } else {
+                document.getElementById('appendWarning').style.display = "block";
+            }
+        }
+
+        function getValue() {
+            const key = document.getElementById('getKey').value;
+            console.log(key)
+
+            if (key != "") {
+                fetch(`/api/get?key=${key}&ip=${ip}&port=${port}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log(data);
+                        document.getElementById('getWarning').style.display = "none";
+                        document.getElementById('valueNotFound').innerText = "";
+                        if (data.hasOwnProperty('value')) {
+                            document.getElementById('getValue').value = data.value.result;
+                            if (data.value.result == "") {
+                                document.getElementById('valueNotFound').innerText = "NOT FOUND";
+                            }
+                            document.getElementById('valueForKey').innerText = document.getElementById('getKey').value;
+                        } else {
+                            document.getElementById('getValue').value = '';
+                            document.getElementById('valueForKey').innerText = 'Key not found';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error getting value:', error);
+                    });
+            } else {
+                document.getElementById('getWarning').style.display = "block";
+                document.getElementById('getValue').value = '';
+                document.getElementById('valueForKey').innerText = "";
+                document.getElementById('valueNotFound').innerText = "";
+            }
+        }
+
+        function getLength() {
+            const key = document.getElementById('lenKey').value;
+
+            if (key != "") {
+                fetch(`/api/length?key=${key}&ip=${ip}&port=${port}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('lenWarning').style.display = "none";
+                        document.getElementById('valueLenNotFound').innerText = "";
+                        if (data.hasOwnProperty('value')) {
+                            document.getElementById('lenValue').value = data.value.result;
+                            if (data.value.result == "") {
+                                document.getElementById('valueLenNotFound').innerText = "NOT FOUND";
+                            }
+                            document.getElementById('valueLenForKey').innerText = document.getElementById('lenKey').value;
+                        } else {
+                            document.getElementById('lenValue').value = '';
+                            document.getElementById('valueLenForKey').innerText = 'Key not found';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error getting value:', error);
+                    });
+            } else {
+                document.getElementById('lenWarning').style.display = "block";
+                document.getElementById('lenValue').value = '';
+                document.getElementById('valueLenForKey').innerText = "";
+                document.getElementById('valueLenNotFound').innerText = "";
+            }
+        }
+
+        function getAll() {
+            var itemHTML = ''
+
+            fetch(`/api/getall?ip=${ip}&port=${port}`)
+                .then(response => response.json())
+                .then(data => {
+                    Object.entries(data.value.result).forEach(([key, value]) => {
+                        itemHTML += `
+                            <div class="log-entry">
+                                <div><strong>Key:</strong> ${key}</div>
+                                <div><strong>Value:</strong> ${value}</div>
+                            </div>
+                        `;
+                    });
+
+                    $('#getall-item-container').html(itemHTML);
+                })
+                .catch(error => {
+                    console.error('Error getting value:', error);
+                });
+        }
+
+        function deleteKey() {
+            const key = document.getElementById('deleteKey').value;
+            const data = {
+                key: key,
+                ip: ip,
+                port: port
+            };
+
+            if (key != "") {
+                fetch('/api/delete', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log(data);
+                        console.log('Request sent successfully');
+                        document.getElementById('deleteKey').value = "";
+                    })
+                    .catch(error => {
+                        console.error('Error sending request:', error);
+                    });
+            } else {
+            }
+        }
+
+        function formatJson(json) {
+            return JSON.stringify(json, null, 2);
+        }
+
+        function renderLogEntries(logEntries) {
+            return logEntries.map(entry => {
+                if (entry.command.value !== undefined && entry.command.value != false) {
+                    return `
+                        <div class="log-entry">
+                            <div><strong>Index:</strong> ${entry.index}</div>
+                            <div><strong>Election Term:</strong> ${entry.election_term}</div>
+                            <div><strong>Command Type:</strong> ${entry.command.command_type}</div>
+                            <div><strong> &nbsp; &nbsp; &nbsp; Key:</strong> ${entry.command.key}</div>
+                            <div><strong> &nbsp; &nbsp; &nbsp; Value:</strong> ${entry.command.value}</div>
+                            <div><strong>Commit Status: </strong>${entry.is_committed ? "True" : "False"}</div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div class="log-entry">
+                            <div><strong>Index:</strong> ${entry.index}</div>
+                            <div><strong>Election Term:</strong> ${entry.election_term}</div>
+                            <div><strong>Command Type:</strong> ${entry.command.command_type}</div>
+                            <div><strong> &nbsp; &nbsp; &nbsp; Key:</strong> ${entry.command.key}</div>
+                            <div><strong>Commit Status: </strong>${entry.is_committed ? "True" : "False"}</div>
+                        </div>
+                    `;
+                }
+            }).join('');
+        }
+
+        function renderNodes(nodes) {
+            let content = '';
+            let dropdown = '';
+            let idx = 0;
+            let selectedIdx = null;
+
+            nodes.forEach(node => {
+                const statusClass = node.status === 'Online' ? 'status-online' : 'status-offline';
+                const leaderClass = node.isLeader ? 'leader-node' : '';
+
+                if (ip == node.address.ip && port == node.address.port) {
+                    selectedIdx = idx;
+                }
+
+                if (statusClass == 'status-online'){
+                  dropdown += `<option value="${node.address.ip}:${node.address.port}">${node.address.ip}:${node.address.port}</option>`
+                  const logEntries = node.local_log || node.log ? renderLogEntries(node.local_log || node.log) : "";
+                  content += `
+                    <div class="card mb-4 ${leaderClass}">
+                        <div class="card-header">
+                            Node: ${node.address.ip}:${node.address.port}
+                        </div>
+                        <div class="card-body">
+                            <h5>Election Term: ${node.election_term}</h5>
+                            <h5>Status: <span class="${statusClass}">${node.status}</span></h5>
+                            <h5>Leader Status: ${node.leader_status} </h5>
+                            <h6>Log Entries:</h6>
+                            <div class="node-log">${logEntries}</div>
+                        </div>
+                    </div>
+                `;
+                } else {
+                    content += `
+                    <div class="card mb-4 ${leaderClass}">
+                        <div class="card-header">
+                            Node: ${node.address.ip}:${node.address.port}
+                        </div>
+                        <div class="card-body">
+                            <h5>Status: <span class="${statusClass}">${node.status}</span></h5>
+                        </div>
+                    </div>
+                  `;
+                }
+                idx++;
+
+            });
+            $('#address-list').html(dropdown);
+            $('#nodes').html(content);
+            if (selectedIdx != null) {
+                $('#address-list').prop('selectedIndex', selectedIdx);
+            } else {
+                $('#address-list').prop('selectedIndex', 0);
+            }
+            changeAddressDestination()
+        }
+
+        function fetchData() {
+            fetch('/api/node_details')
+                .then(response => response.json())
+                .then(data => {
+                    renderNodes(data);
+                });
+        }
+
+        function changeAddressDestination() {
+            const selectedValue = $('#address-list').val();
+            const [newip, newport] = selectedValue.split(':');
+            ip = newip;
+            port = newport;
+        }
+
+        $(document).ready(function () {
+            fetchData();
+            setInterval(fetchData, 5000);
+            showContainer();
+        });
+    </script>
+</body>
+
+</html>
